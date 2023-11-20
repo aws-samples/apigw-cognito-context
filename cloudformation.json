@@ -1,0 +1,78 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Transform": "AWS::Serverless-2016-10-31",
+    "Parameters": {
+        "InvokePath": {
+            "Type": "String",
+            "Description": "Stage/Verb/Resource, https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-control-access-using-iam-policies-to-invoke-api.html",
+            "Default": "*/*/*"
+        },
+        "UserPoolId": {
+            "Type": "String"
+        },
+        "ClientId": {
+            "Type": "String"
+        }
+    },
+    "Resources": {
+        "ApiGatewayRestApi": {
+            "Type": "AWS::ApiGateway::RestApi",
+            "Properties": {
+                "Name": "MyRestApi"
+            }
+        },
+        "AuthorizerFunction": {
+            "Type": "AWS::Serverless::Function",
+            "Properties": {
+                "Handler": "index.handler",
+                "FunctionName": "AuthorizerFunction",
+                "Runtime": "nodejs20.x",
+                "CodeUri": {
+                    "Bucket": "apigw-cognito-context",
+                    "Key": "function.zip"
+                },
+                "Environment": {
+                    "Variables": {
+                        "USER_POOL_ID": {
+                            "Fn::Sub": "${UserPoolId}"
+                        },
+                        "CLIENT_ID": {
+                            "Fn::Sub": "${ClientId}"
+                        },
+                        "RESOURCE": {
+                            "Fn::Sub": "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGatewayRestApi}/${InvokePath}"
+                        }
+                    }
+                }
+            }
+        },
+        "Authorizer": {
+            "Type": "AWS::ApiGateway::Authorizer",
+            "Properties": {
+                "AuthorizerResultTtlInSeconds": 300,
+                "Name": "CognitoAuthorizer",
+                "IdentitySource": "method.request.header.Authorization",
+                "RestApiId": {
+                    "Ref": "ApiGatewayRestApi"
+                },
+                "Type": "TOKEN",
+                "AuthorizerUri": {
+                    "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthorizerFunction.Arn}/invocations"
+                }
+            }
+        },
+        "Permission": {
+            "Type": "AWS::Lambda::Permission",
+            "Properties": {
+                "Action": "lambda:InvokeFunction",
+                "FunctionName": {
+                    "Fn::Sub": "${AuthorizerFunction.Arn}"
+                },
+                "Principal": "apigateway.amazonaws.com",
+                "SourceArn": {
+                    "Fn::Sub": "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGatewayRestApi}/authorizers/${Authorizer}"
+                }
+            }
+        }
+    }
+}
